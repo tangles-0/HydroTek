@@ -112,7 +112,7 @@ Preferences preferences;
 MenuOption menuOptions[NUM_MENU_OPTIONS] = {
   //(int pos (menu position), String title (description), String systemName (used for the 'preferences' library), String type (bool, int, or float), float defaultVal, float maxVal, float minVal, bool showInMenu, bool saveInFlash
   
-  MenuOption(1, "Upload frequency", "uploadFreq", "int", 30, 1, true, true),
+  MenuOption(1, "Upload frequency", "uploadFreq", "int", 5, 1, true, true),
   //temp
   MenuOption(2, "Temp enable", "tenable", "bool", 0, 0.0, true, true),
   MenuOption(3, "HI Temp lamp off", "tlampshutoff", "bool", 0, 0, true, true),
@@ -450,7 +450,7 @@ unsigned long getTelemetryIntervalMs() {
 }
 
 unsigned long getPendingConfigRetryIntervalMs() {
-  return getConfiguredSyncIntervalMs();
+  return 60UL * 1000UL;
 }
 
 void markLocalConfigDirty() {
@@ -618,7 +618,7 @@ void pullRemoteConfig(bool force = false) {
   if (!wifiConnected || deviceID.length() == 0) {
     return;
   }
-  if (!force && millis() - lastRemoteConfigFetch < getPendingConfigRetryIntervalMs()) {
+  if (!force && lastRemoteConfigFetch > 0 && millis() - lastRemoteConfigFetch < getPendingConfigRetryIntervalMs()) {
     return;
   }
   lastRemoteConfigFetch = millis();
@@ -1494,7 +1494,7 @@ void syncPendingDeviceConfig(bool force = false) {
   if (!remoteConfigDirty || !wifiConnected || deviceID.length() == 0) {
     return;
   }
-  if (!force && millis() - lastPendingConfigSyncAttempt < getPendingConfigRetryIntervalMs()) {
+  if (!force && lastPendingConfigSyncAttempt > 0 && millis() - lastPendingConfigSyncAttempt < getPendingConfigRetryIntervalMs()) {
     return;
   }
   lastPendingConfigSyncAttempt = millis();
