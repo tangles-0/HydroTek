@@ -3,39 +3,49 @@
 #include "Arduino.h"
 #include "menu-option.h"
 
-// is this valid here?
-#include <Preferences.h>
-Preferences preferences;
+MenuOption::MenuOption() {
+  _pos = 0;
+  _title = "";
+  _systemName = "";
+  _type = "int";
+  _defaultVal = 0;
+  _maxVal = 0;
+  _minVal = 0;
+  _showInMenu = true;
+  _saveInFlash = true;
+  _setDefaultCurrentVal();
+}
 
-//class constructor
-void MenuOption::MenuOption(int pos, String title, String systemName, String type, float defaultVal, float maxVal, float minVal, bool showInMenu, bool saveInFlash) {
+MenuOption::MenuOption(int pos, String title, String systemName, String type, float maxVal, float minVal, bool showInMenu, bool saveInFlash) {
+  Init(pos, title, systemName, type, maxVal, minVal, showInMenu, saveInFlash);
+}
+
+void MenuOption::Init(int pos, String title, String systemName, String type, float maxVal, float minVal, bool showInMenu, bool saveInFlash) {
   _pos = pos;
   _title = title;
   _systemName = systemName;
   _type = type;
-  _defaultVal = defaultVal;
+  _defaultVal = maxVal;
   _maxVal = maxVal;
   _minVal = minVal;
   _showInMenu = showInMenu;
   _saveInFlash = saveInFlash;
-  _loadFromFlash();
+  _setDefaultCurrentVal();
 }
 
-void MenuOption::_loadFromFlash() {
-  // load the last known setting from flash
+void MenuOption::_setDefaultCurrentVal() {
   if (_type == "bool") {
-    _boolVal = preferences.getBool(_systemName, _defaultVal == 1 ? true : false);
+    _boolVal = _defaultVal >= 1;
   } else if (_type == "int") {
-    _intVal = preferences.getUInt(_systemName, Int(_defaultVal));
+    _intVal = int(_defaultVal);
   } else if (_type == "float") {
-    _floatVal = preferences.getFloat(_systemName, _defaultVal);
-  }  
+    _floatVal = _defaultVal;
+  }
 }
 
 void MenuOption::adjustVal(bool increment) {
   if (_type == "bool") {
     _boolVal = !_boolVal;
-    preferences.putBool(_systemName, _boolVal) //save to flash
   }
   else if (_type == "int") {
     if (increment) {
@@ -49,7 +59,6 @@ void MenuOption::adjustVal(bool increment) {
         _intVal = int(_maxVal);
       }
     }
-    preferences.putUInt(_systemName, _intVal) //save to flash
   }
   else if (_type == "float") {
     if (increment) {
@@ -63,7 +72,6 @@ void MenuOption::adjustVal(bool increment) {
         _floatVal = _maxVal;
       }
     }
-    preferences.putFloat(_systemName, _floatVal) //save to flash
   }
 }
 
@@ -73,10 +81,13 @@ int MenuOption::pos() {
 String MenuOption::title() {
   return _title;
 }
+String MenuOption::getSysName() {
+  return _systemName;
+}
 String MenuOption::getType() {
   return _type;
 }
-bool MenuOption::defaultVal() {
+float MenuOption::defaultVal() {
   return _defaultVal;
 }
 void MenuOption::setBoolVal(bool value) {
@@ -99,4 +110,7 @@ float MenuOption::floatVal() {
 }
 bool MenuOption::showInMenu() {
   return _showInMenu;
+}
+bool MenuOption::saveInFlash() {
+  return _saveInFlash;
 }

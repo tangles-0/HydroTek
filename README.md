@@ -4,15 +4,14 @@
 
 ---
 
-Visit [https://github.com/Energiz3r/hydrotek-react](https://github.com/Energiz3r/hydrotek-react) to access the react app which accompanies the hardware.
-
-### Status Update:
+### Status Update
 
 This project is under development. If you wish to build this you should contact me to see if it's feasible at the time.
 As of writing, the hardware is mostly complete, but I am designing a new PCB to address quality of life points, such as proper connectors for sensors instead of IDC header pins.
-Firmware is largely finished and, with an understanding of the format of the web requests, could be made to talk to any API for updating the device configuration or just simply logging of data.
-Management and reporting software comes in the form of a react / PHP / SQL based web app and is only partially complete.
-Designs for the casing of the device will not be started until the PCB for the current revision is finalised and tested.
+
+- **Firmware** (ESP32, in `firmware/hydrotek/`): Largely complete. On-device menu, flash-stored settings, Wi‑Fi provisioning (SSID scan and passphrase entry on the 128×64 OLED with four buttons), device pairing with the web app, RTC time sync from server, and bidirectional config sync (device as source of truth; web can push pending config; device reports local changes). Telemetry and alarm states are sent to the web API.
+- **Web app** (in `nextapp/`): Next.js 15 app with email/password auth, Neon PostgreSQL (Drizzle), dashboard (telemetry chart/table, device tabs, 1h/12h/24h/30d range), device pairing (one-time code on OLED, confirm in app), device settings modal (form-based config, sync state, remove device), and responsive light/dark UI. See `nextapp/README.md` for setup and run instructions.
+- **Casing**: Designs will not be started until the PCB for the current revision is finalised and tested.
 
 ---
 
@@ -23,7 +22,7 @@ There are four components to this repository:
 - PCB cad file (created in PCBWeb for early revisions, then KiCad as of rev7)
 - Firmware for the ESP32
 - STL files for a case
-- The webb app for configuration and monitoring of the device
+- The web app (`nextapp/`) for configuration and monitoring of the device
 
 ### History:
 
@@ -92,12 +91,14 @@ I2C pH sensors _could_ be connected using a kit [such as this](https://www.spark
 
 ---
 
-### To Do (not started):
+### Implemented (firmware + web):
 
-- finish API development to complete the feature of updating the device configuration as changes are made to it through the web interface
-- update the RTC time from online
-- WiFi configuration on the device, using buttons and a menu instead of by editing the sketch
-- Flow sensor calibration on the device, eg. 'pour 1L of water through the sensor then press OK'
+- **Wi‑Fi on device**: SSID scan and passphrase entry via 4-button menu and OLED (credentials stored in flash).
+- **Device pairing**: Device requests a one-time code from the web API, shows it on the OLED; user confirms in the web app; device polls until paired and stores device/account IDs and token in flash.
+- **RTC time sync**: Device fetches time from the web API on boot and when connected; optional “Sync Clock” menu action.
+- **Config sync**: Device pushes full config on boot and when settings change on-device (device is source of truth). Web app can set “pending” config; device polls and applies pending config, then acknowledges. “Fetch Config” menu option forces a pull. Config state (pending/success/device) is shown in the web settings modal.
+- **Flow calibration on device**: Menu option for flow sensor; run 5L through and confirm to calibrate pulses per mL.
+- **Web app**: Password auth, dashboard with telemetry chart (temp, humidity, flow) and table, device tabs, range filters (1h/12h/24h/30d), status indicators (lamp, pump, floats, alarm), add-device and device-settings modals, form-based device config (no raw JSON). See `nextapp/README.md`.
 
 ---
 
@@ -120,8 +121,8 @@ _(rev5)_
   - Install IDC jumper shunts between the GND and DATA pins for flow sensors that will not be used, else the pin will float and detect erroneous readings
   - If the float sensor logic is to be inverted (normally-closed), a jumper shunt on those pins will be handy to silence the alarm if the power is on and the float sensors are not connected
 - Configure your Arduino IDE according to the section below
-- Edit the WiFi configuration and web username / password combination in 'esp32.ino' to suit your needs, then upload to the ESP32
-- Power on your HydroTek and access the web app to confirm it works
+- Set the web API base URL in the sketch (e.g. `webEndpoint`) if needed, then upload to the ESP32. Wi‑Fi SSID and passphrase can be set on-device via the menu (Options → Wi‑Fi) after first boot.
+- Power on your HydroTek, configure Wi‑Fi from the device menu, then pair and use the web app to confirm it works
 - Connect your (safe, low-voltage) lamps / pumps to the relay module and connect the relay module inputs to the header pins on the PCB
   - NOTE: If in any doubt at all, use safe, low-voltage LED grow lights and nutrient pumps. Switching of mains voltages may not be at all legal where you live, your relays may not be sufficient, I advise you not to try it, and I accept no responsibility if you do.
 
@@ -153,31 +154,21 @@ _(rev5)_
 _(rev5)_
 
 - Have not designed a 3D printable case. Will not do this until satisfied the board design is final
-- The react app is included in the repo for now but is incomplete and may be removed in future. Makers will be able to use my hosted platform or build their own API
-- The nutrient flow values are raw 'ticks' from the flow sensor, not a calculated litres or gallons value
+- The nutrient flow values are derived from flow sensor pulses and the configurable “Flow pulses per mL” (or from the on-device calibration flow).
 
 ---
 
-### API:
+### API (device ↔ web app)
 
-_(rev5)_
+The firmware uses a **base URL** in `webEndpoint` (e.g. `https://your-host/api/device`). The ESP32 talks to the Next.js app in `nextapp/` with these flows:
 
-The sketch sends a POST request to the URL supplied in the variable 'webEndpoint'. The POST values are as follows:
+| Purpose | Method | Path | Auth |
+|--------|--------|------|------|
+| Time sync | GET | `/time` | — |
+| Request pairing code | POST | `/pairing/request` | — |
+| Poll pairing status | GET | `/pairing/status?code=XXX` | — |
+| Telemetry (temp, humidity, flow, lamp, pump, floats, alarms) | POST | `/telemetry` | Bearer device token |
+| Get config (when pending) | GET | `/config?deviceId=...` | Bearer device token |
+| Notify config changed (device edited) | POST | `/config/changed` | Bearer device token |
 
-| POST variable name | description            | data type the ESP will supply |
-| ------------------ | ---------------------- | ----------------------------- |
-| user               | username for API       | string                        |
-| password           | password for API       | string                        |
-| deviceID           | the ID of the device\* | int                           |
-| t1                 | temperature 1          | int or float                  |
-| t2                 | temperature 2          | int or float                  |
-| h1                 | humidity 1             | int or float                  |
-| h2                 | humidity 2             | int or float                  |
-| f1                 | float 1                | int                           |
-| f2                 | float 2                | int                           |
-| l1                 | flow 1                 | int or float                  |
-| l2                 | flow 2                 | int or float                  |
-
-_The deviceID was only intended to be used if you wanted to have multiple devices use your endpoint._
-
-In future, makers will be able to use my hosted platform once it is complete instead of building their own.
+Telemetry and config payloads are JSON. The web app exposes device pairing, telemetry history, and device config (form-based) to logged-in users. See `nextapp/README.md` for environment and run instructions.

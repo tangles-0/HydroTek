@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Colors from theme.ts light mode */
+  --background: 0 0% 100%; /* #ffffff */
+  --foreground: 222 47% 11%; /* #0f172a */
+  --card: 0 0% 100%; /* #ffffff */
+  --card-foreground: 222 47% 11%; /* #0f172a */
+  --popover: 0 0% 100%; /* #ffffff */
+  --popover-foreground: 222 47% 11%; /* #0f172a */
+  --primary: 217 91% 60%; /* #3b82f6 */
+  --primary-foreground: 210 40% 98%; /* #f8fafc */
+  --secondary: 214 32% 91%; /* #f1f5f9 */
+  --secondary-foreground: 222 47% 11%; /* #0f172a */
+  --muted: 210 40% 98%; /* #f8fafc */
+  --muted-foreground: 215 16% 47%; /* #64748b */
+  --accent: 214 32% 91%; /* #f1f5f9 */
+  --accent-foreground: 222 47% 11%; /* #0f172a */
+  --destructive: 0 84% 60%; /* #ef4444 */
+  --destructive-foreground: 210 40% 98%; /* #f8fafc */
+  --border: 214 32% 91%; /* #e2e8f0 */
+  --input: 214 32% 91%; /* #e2e8f0 */
+  --ring: 217 91% 60%; /* #3b82f6 */
+  --radius: 0.5rem;
+}
+
+.dark {
+  /* Colors from theme.ts dark mode */
+  --background: 222 47% 11%; /* #0f172a */
+  --foreground: 210 40% 98%; /* #f8fafc */
+  --card: 222 47% 11%; /* #0f172a */
+  --card-foreground: 210 40% 98%; /* #f8fafc */
+  --popover: 222 47% 11%; /* #0f172a */
+  --popover-foreground: 210 40% 98%; /* #f8fafc */
+  --primary: 213 94% 68%; /* #60a5fa */
+  --primary-foreground: 222 47% 11%; /* #0f172a */
+  --secondary: 217 33% 17%; /* #1e293b */
+  --secondary-foreground: 210 40% 98%; /* #f8fafc */
+  --muted: 217 33% 17%; /* #1e293b */
+  --muted-foreground: 215 20% 65%; /* #94a3b8 */
+  --accent: 217 33% 17%; /* #1e293b */
+  --accent-foreground: 210 40% 98%; /* #f8fafc */
+  --destructive: 0 74% 50%; /* #dc2626 */
+  --destructive-foreground: 210 40% 98%; /* #f8fafc */
+  --border: 215 25% 27%; /* #334155 */
+  --input: 215 25% 27%; /* #334155 */
+  --ring: 221 83% 93%; /* #e0e7ff */
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+@layer utilities {
+  .surface-card {
+    background-color: hsl(var(--card) / 0.88);
+    backdrop-filter: blur(8px);
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.9rem;
+    box-shadow: 0 10px 30px hsl(var(--foreground) / 0.06);
+  }
+}

@@ -7,10 +7,13 @@
 
 class MenuOption {
   public:
-    void Init(int pos, String title, String systemName, String type, float defaultVal, float maxVal, float minVal, bool showInMenu, bool saveInFlash); //bool, int, or float
+    MenuOption();
+    MenuOption(int pos, String title, String systemName, String type, float maxVal, float minVal, bool showInMenu, bool saveInFlash); //bool, int, or float
+    void Init(int pos, String title, String systemName, String type, float maxVal, float minVal, bool showInMenu, bool saveInFlash); //bool, int, or float
     void adjustVal(bool increment);
     int pos();
     String title();
+    String getSysName();
     String getType();
     float defaultVal();
 
@@ -22,6 +25,7 @@ class MenuOption {
     float floatVal();
     
     bool showInMenu();
+    bool saveInFlash();
     
   private:
     int _pos;
@@ -37,7 +41,7 @@ class MenuOption {
     bool _showInMenu;
     bool _saveInFlash;
 
-    void _loadFromFlash();
+    void _setDefaultCurrentVal();
 };
 
 #endif
