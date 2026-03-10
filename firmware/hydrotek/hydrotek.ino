@@ -106,6 +106,51 @@ RTC_DS1307 RTC;
 #include <ArduinoJson.h>
 
 Preferences preferences;
+portMUX_TYPE flowPulseMux = portMUX_INITIALIZER_UNLOCKED;
+volatile unsigned long flowPulseInterruptCount = 0;
+
+void IRAM_ATTR onFlowPulse() {
+  portENTER_CRITICAL_ISR(&flowPulseMux);
+  flowPulseInterruptCount++;
+  portEXIT_CRITICAL_ISR(&flowPulseMux);
+}
+
+unsigned long takePendingFlowPulses() {
+  unsigned long pulses = 0;
+  portENTER_CRITICAL(&flowPulseMux);
+  pulses = flowPulseInterruptCount;
+  flowPulseInterruptCount = 0;
+  portEXIT_CRITICAL(&flowPulseMux);
+  return pulses;
+}
+
+void clearPendingFlowPulses() {
+  portENTER_CRITICAL(&flowPulseMux);
+  flowPulseInterruptCount = 0;
+  portEXIT_CRITICAL(&flowPulseMux);
+}
+
+extern bool calibratingFlowSensor;
+extern unsigned long flowSensorCalibrationPulses;
+extern MenuOption menuOptions[];
+extern uint32_t localConfigVersion;
+
+void startFlowCalibration() {
+  calibratingFlowSensor = true;
+  flowSensorCalibrationPulses = 0;
+  clearPendingFlowPulses();
+}
+
+void finishFlowCalibration() {
+  calibratingFlowSensor = false;
+  flowSensorCalibrationPulses = flowSensorCalibrationPulses + takePendingFlowPulses();
+  menuOptions[30].setFloatVal(flowSensorCalibrationPulses / 5.0 / 1000.0);
+  flashWrite();
+  flowSensorCalibrationPulses = 0;
+  localConfigVersion++;
+  webConfigWrite();
+  markLocalConfigDirty();
+}
 
 // declare an array of menu option objects
 #define NUM_MENU_OPTIONS 38
@@ -921,20 +966,28 @@ void pumpCheckState(int currentSecond) {
   }
 }
 
-unsigned int flowPulseCount = 0;
+unsigned long flowPulseCount = 0;
 unsigned int flowMlSinceLastUpload = 0;
 void flowCheckState(){
-  if (configFlowEnable.boolVal()) {
-    float pulsesPerMl = configFlowPulsesPerMl.floatVal();
-    if (pulsesPerMl <= 0.0) {
-      flowPulseCount = 0;
-      return;
-    }
-    int flowInMl = flowPulseCount / pulsesPerMl;
-    pumpMeasuredFlowMl = pumpMeasuredFlowMl + flowInMl;
-    flowMlSinceLastUpload = flowMlSinceLastUpload + flowInMl;
+  flowPulseCount = takePendingFlowPulses();
+  if (!configFlowEnable.boolVal()) {
     flowPulseCount = 0;
+    return;
   }
+  if (calibratingFlowSensor) {
+    flowSensorCalibrationPulses = flowSensorCalibrationPulses + flowPulseCount;
+    flowPulseCount = 0;
+    return;
+  }
+  float pulsesPerMl = configFlowPulsesPerMl.floatVal();
+  if (pulsesPerMl <= 0.0) {
+    flowPulseCount = 0;
+    return;
+  }
+  int flowInMl = flowPulseCount / pulsesPerMl;
+  pumpMeasuredFlowMl = pumpMeasuredFlowMl + flowInMl;
+  flowMlSinceLastUpload = flowMlSinceLastUpload + flowInMl;
+  flowPulseCount = 0;
   //(pulsesOver1000ms * 60 / 7.5); //the LPH calculation for flow sensors
 }
     
@@ -1051,14 +1104,10 @@ void onButtonPress(String btnType, bool longPress) { //OK BK UP DN
           return;
         }
         if (menuSelection == 31) {
-          calibratingFlowSensor = !calibratingFlowSensor;
           if (calibratingFlowSensor) {
-            configFlowPulsesPerMl.setFloatVal(flowSensorCalibrationPulses / 5.0 / 1000.0);
-            flashWrite();
-            flowSensorCalibrationPulses = 0;
-            localConfigVersion++;
-            webConfigWrite();
-            markLocalConfigDirty();
+            finishFlowCalibration();
+          } else {
+            startFlowCalibration();
           }
         } else {
           editingAnOption = !editingAnOption;
@@ -1076,13 +1125,7 @@ void onButtonPress(String btnType, bool longPress) { //OK BK UP DN
       } else {
         if (menuSelection == 31) {
           if (calibratingFlowSensor) {
-            calibratingFlowSensor = !calibratingFlowSensor;
-            configFlowPulsesPerMl.setFloatVal(flowSensorCalibrationPulses / 5.0 / 1000.0);
-            flashWrite();
-            flowSensorCalibrationPulses = 0;
-            localConfigVersion++;
-            webConfigWrite();
-            markLocalConfigDirty();
+            finishFlowCalibration();
           } else {
             editingAnOption = false;
           }
@@ -1173,6 +1216,11 @@ void menuDraw() {
     display.setCursor(lineX + 15, lineY(3));
     display.setTextSize(2);
     if (calibratingFlowSensor && menuSelection == 31) {
+      display.setTextSize(1);
+      display.setCursor(lineX, lineY(2));
+      display.print("Pulses counted");
+      display.setCursor(lineX + 15, lineY(3));
+      display.setTextSize(2);
       display.print(flowSensorCalibrationPulses);
       display.setTextSize(1);
       display.setCursor(lineX, lineY(5));
@@ -1696,6 +1744,7 @@ void setup() {
   pinMode(lampPin, OUTPUT);
   pinMode(pumpPin, OUTPUT);
   pinMode(flowPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(flowPin), onFlowPulse, RISING);
   Serial.println("Setup step: led");
   if (startupLedPwmEnabled) {
     bool ledAttached = ledcAttach(ledPin, 5000, 8);
@@ -1754,7 +1803,6 @@ void setup() {
 
 }
 
-bool flowLastState = false;
 int long unsigned lastSensorUpdate = 0;
 int long unsigned lastSerialUpdate = 0;
 bool wifiConnOnce = false; // track whether wifi ever connected
@@ -1784,20 +1832,6 @@ void loop () {
 
   if (uiMode == UI_PAIRING_WAIT) {
     pollPairingStatus();
-  }
-
-  //monitor for changes to state on the flow sensor inputs
-  // this *should* be an interrupt but the loop runs fast enough that it isn't really an issue, and in this case the accuracy of the flow sensor was already poor
-  if (configFlowEnable.boolVal()) {
-    if (digitalRead(flowPin) != flowLastState) {
-      flowLastState = !flowLastState;
-      if (flowLastState) { //only increment on a HIGH reading
-        if (calibratingFlowSensor) {
-          flowSensorCalibrationPulses++;
-        }
-        flowPulseCount++;
-      }
-    }
   }
 
   //OK button down
