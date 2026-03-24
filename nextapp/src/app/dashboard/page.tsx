@@ -125,6 +125,8 @@ export default function DashboardPage() {
   const [telemetryRange, setTelemetryRange] = useState<"1h" | "12h" | "24h" | "30d">("24h");
   const [isTelemetryRefreshing, setIsTelemetryRefreshing] = useState(false);
   const [isSettingsRefreshing, setIsSettingsRefreshing] = useState(false);
+  const [deviceNameForm, setDeviceNameForm] = useState("");
+  const [isRenameSaving, setIsRenameSaving] = useState(false);
 
   const activeDevice = useMemo(() => {
     if (devices.length === 0) return undefined;
@@ -219,6 +221,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeDevice) {
       setConfigForm(buildConfigForm(activeDevice));
+      setDeviceNameForm(activeDevice.name);
     }
   }, [activeDevice]);
 
@@ -302,6 +305,28 @@ export default function DashboardPage() {
       setStatus("Device config/status refreshed");
     } finally {
       setIsSettingsRefreshing(false);
+    }
+  }
+
+  async function renameDevice() {
+    if (!activeDevice) return;
+    const name = deviceNameForm.trim();
+    if (!name) return;
+    setIsRenameSaving(true);
+    try {
+      const res = await fetch("/api/devices", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId: activeDevice.id, name }),
+      });
+      if (!res.ok) {
+        setStatus("Failed to rename device");
+        return;
+      }
+      setStatus("Device renamed");
+      await loadDevices();
+    } finally {
+      setIsRenameSaving(false);
     }
   }
 
@@ -532,6 +557,25 @@ export default function DashboardPage() {
           </DialogHeader>
           {activeDevice ? (
             <div className="space-y-3">
+              <div className="pb-3 border-b">
+                <label className="text-sm space-y-1 block">
+                  <span className="block text-gray-700 dark:text-gray-300">Device name</span>
+                  <div className="flex gap-2">
+                    <Input
+                      value={deviceNameForm}
+                      onChange={(e) => setDeviceNameForm(e.target.value)}
+                      placeholder="Device name"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => void renameDevice()}
+                      disabled={isRenameSaving || !deviceNameForm.trim() || deviceNameForm.trim() === activeDevice.name}
+                    >
+                      {isRenameSaving ? "Saving..." : "Save name"}
+                    </Button>
+                  </div>
+                </label>
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-gray-600">Config sync state: {activeDevice.configSyncState}</p>
                 <Button
