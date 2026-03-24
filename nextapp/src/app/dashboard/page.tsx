@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, Droplets, Lightbulb, Settings, Waves } from "lucide-react";
+import { AlertTriangle, Droplets, Lightbulb, RefreshCw, Settings, Waves } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -109,7 +109,6 @@ const CONFIG_FIELDS: ConfigField[] = [
   { key: "flwenable", label: "Flow enable", type: "bool" },
   { key: "flowpulsesml", label: "Flow pulses per mL", type: "float", min: 0, max: 10000, step: 0.5 },
   { key: "displaytype", label: "Display type (0=All, 1=Temp)", type: "int", min: 0, max: 1 },
-  { key: "enablewifi", label: "Enable WiFi", type: "bool" },
 ];
 
 export default function DashboardPage() {
@@ -124,6 +123,8 @@ export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [telemetryView, setTelemetryView] = useState<"chart" | "table">("chart");
   const [telemetryRange, setTelemetryRange] = useState<"1h" | "12h" | "24h" | "30d">("24h");
+  const [isTelemetryRefreshing, setIsTelemetryRefreshing] = useState(false);
+  const [isSettingsRefreshing, setIsSettingsRefreshing] = useState(false);
 
   const activeDevice = useMemo(() => {
     if (devices.length === 0) return undefined;
@@ -153,6 +154,24 @@ export default function DashboardPage() {
     [telemetry]
   );
 
+  function buildConfigForm(device: Device) {
+    const next: Record<string, string | boolean> = {};
+    for (const field of CONFIG_FIELDS) {
+      const raw = device.desiredConfig?.[field.key];
+      if (field.type === "bool") {
+        next[field.key] = Boolean(raw);
+      } else {
+        next[field.key] =
+          raw == null
+            ? ""
+            : typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean"
+              ? String(raw)
+              : JSON.stringify(raw);
+      }
+    }
+    return next;
+  }
+
   async function loadDevices() {
     const res = await fetch("/api/devices");
     if (!res.ok) return;
@@ -174,14 +193,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (session?.user?.id) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadDevices();
     }
   }, [session?.user?.id]);
 
   useEffect(() => {
     if (devices.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (selectedDevice !== "") setSelectedDevice("");
       return;
     }
@@ -193,27 +210,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (activeDevice?.id) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadTelemetry(activeDevice.id, telemetryRange);
-      const next: Record<string, string | boolean> = {};
-      for (const field of CONFIG_FIELDS) {
-        const raw = activeDevice.desiredConfig?.[field.key];
-        if (field.type === "bool") {
-          next[field.key] = Boolean(raw);
-        } else {
-          next[field.key] =
-            raw == null
-              ? ""
-              : typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean"
-                ? String(raw)
-                : JSON.stringify(raw);
-        }
-      }
-      setConfigForm(next);
     } else {
       setTelemetry([]);
     }
-  }, [activeDevice?.id, activeDevice?.desiredConfig, telemetryRange]);
+  }, [activeDevice?.id, telemetryRange]);
+
+  useEffect(() => {
+    if (activeDevice) {
+      setConfigForm(buildConfigForm(activeDevice));
+    }
+  }, [activeDevice]);
 
   useEffect(() => {
     const handler = () => setIsAddDeviceOpen(true);
@@ -275,6 +282,27 @@ export default function DashboardPage() {
     }
     setStatus("Config saved");
     await loadDevices();
+  }
+
+  async function refreshTelemetry() {
+    if (!activeDevice) return;
+    setIsTelemetryRefreshing(true);
+    try {
+      await loadTelemetry(activeDevice.id, telemetryRange);
+    } finally {
+      setIsTelemetryRefreshing(false);
+    }
+  }
+
+  async function refreshDeviceConfig() {
+    if (!activeDevice) return;
+    setIsSettingsRefreshing(true);
+    try {
+      await loadDevices();
+      setStatus("Device config/status refreshed");
+    } finally {
+      setIsSettingsRefreshing(false);
+    }
   }
 
   async function removeDevice(deviceId: string) {
@@ -340,6 +368,15 @@ export default function DashboardPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg sm:text-xl font-semibold">Telemetry</h2>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refreshTelemetry()}
+              disabled={!activeDevice || isTelemetryRefreshing}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${isTelemetryRefreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
             <Tabs.Root
               value={telemetryRange}
               onValueChange={(value) =>
@@ -495,7 +532,18 @@ export default function DashboardPage() {
           </DialogHeader>
           {activeDevice ? (
             <div className="space-y-3">
-              <p className="text-sm text-gray-600">Config sync state: {activeDevice.configSyncState}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-gray-600">Config sync state: {activeDevice.configSyncState}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void refreshDeviceConfig()}
+                  disabled={isSettingsRefreshing}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isSettingsRefreshing ? "animate-spin" : ""}`} />
+                  Refresh config/status
+                </Button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[60vh] overflow-auto pr-1">
                 {CONFIG_FIELDS.map((field) => (
                   <label key={field.key} className="text-sm space-y-1 block">

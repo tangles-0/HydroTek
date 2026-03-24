@@ -33,22 +33,21 @@
 //#define offlineMode // deprecated. wifi can be disabled from the settings menu
 //#define buttonDisable
 
-#include <pitches.h>
-#include <Tone32.h>
+#include "tones.h"
 
 #include "menu-option.h"
 
 // PIN ASSIGNMENTS
 #define floatSw1Pin 23 // OK
 #define floatSw2Pin 5 // OK
-#define dhtPin 16 // OK (dht2: 17)
+#define dhtPin 15 // WAS 16 // OK (dht2: 17)
 #define flowPin 25 // OK (flow2: 32)
 #define lampPin 18 // untested (lamp2: 18) 19 originally - bridged to ground on current PCB
 #define pumpPin 26 // untested (pump2: 36)
 
 #define ledPin 33 // not working (pin is not an output)
 #define ledBrightness 20 // 0 - 255
-#define buzzPin 14 // OK (TMS)
+#define buzzerPin 14 // OK (TMS)
 #define buttonPinOK 32 // OK
 #define buttonPinBK 27 // OK
 #define buttonPinUP 13 // OK (TCK)
@@ -73,11 +72,15 @@ String wifiPassphrase = "";
 #define buttonShortTime 30 //ms
 #define buttonLongTime 250 //ms
 //#define flowPulsesPerMl 0.45 //flow sensor pulses per mL of liquid (YF-S201 sensor = 0.45) //deprecated. now an item in the settings menu
-#define buzzerChannel 1 // specify the PWM channel to use for the buzzer
 #define screenSleepTime 1 // how long to keep screen on for before sleeping (mins)
 #define buttonDebounceTime 10 //ms
-#define startupBeepEnabled false
+#define startupBeepEnabled true
 #define startupLedPwmEnabled false
+
+#include <Arduino.h>
+#include "ESP32S3Buzzer.h"
+const uint8_t buzzerChannel = 1; // specify the PWM channel to use for the buzzer
+ESP32S3Buzzer buzzer(buzzerPin, buzzerChannel);
 
 // ESP WiFi Includes
 #include <WiFi.h>
@@ -159,7 +162,7 @@ MenuOption menuOptions[NUM_MENU_OPTIONS] = {
   
   MenuOption(1, "Upload frequency", "uploadFreq", "int", 5, 1, true, true),
   //temp
-  MenuOption(2, "Temp enable", "tenable", "bool", 0, 0.0, true, true),
+  MenuOption(2, "Temp enable", "tenable", "bool", 1, 0.0, true, true),
   MenuOption(3, "HI Temp lamp off", "tlampshutoff", "bool", 0, 0, true, true),
   MenuOption(4, "Shutoff Temp degC", "tshutofftemp", "float", 60, 5, true, true),
   MenuOption(5, "HI temp alarm", "thighalarm", "bool", 0, 0, true, true),
@@ -362,12 +365,10 @@ void Button::checkState(unsigned int long curMs) {
   if (digitalRead(_pin) == HIGH && _lastState) {
     if (curMs - _startTime > buttonShortTime) {
       if (curMs - _startTime > buttonLongTime) {
-        tone(buzzPin, NOTE_C5, 10, buzzerChannel);
-        noTone(buzzPin, buzzerChannel);
+        buzzer.tone(NOTE_C5, 10, 0, 1);
         onButtonPress(_btnType, true);
       } else {
-        tone(buzzPin, NOTE_C5, 10, buzzerChannel);
-        noTone(buzzPin, buzzerChannel);
+        buzzer.tone(NOTE_C5, 10, 0, 1);
         onButtonPress(_btnType, false);
       }
     }
@@ -912,8 +913,7 @@ void alarmCheckState(){
   }
   alarmActive = shouldSoundAlarm;
   if (shouldSoundAlarm) {
-    tone(buzzPin, NOTE_A4, 50, buzzerChannel);
-    noTone(buzzPin, buzzerChannel);
+    buzzer.tone(NOTE_A4, 50, 0, 1);
   }
 }
 
@@ -1497,7 +1497,7 @@ void displayUpdate(int curMillis) {
     display.setTextSize(1);
     display.print(line);    
   }
-  display.setCursor(lineX, lineY(5));
+  display.setCursor(lineX + 3, lineY(5));
   //Serial.println(alarmReason);
   if (alarmActive) {
     display.print(alarmReason);
@@ -1608,9 +1608,12 @@ bool sendTelemetry(const String& reason, unsigned long curMillis) {
     markSyncFailure();
   }
   if (httpCode == 401 || httpCode == 403 || httpCode == 404) {
-    alarmReason = "Device unpaired";
-    uiMode = UI_PAIRING_WAIT;
-    pairingCode = "ERR";
+    // only show the pairing-failed UI if we thought we were paired
+    if (deviceID.length() > 0) {
+      alarmReason = "Device unpaired";
+      uiMode = UI_PAIRING_WAIT;
+      pairingCode = "ERR";
+    }
     return false;
   }
   if (!requestOk || httpCode >= 300) {
@@ -1684,10 +1687,13 @@ void uploadData(unsigned long curMillis) {
     return;
   #endif
 
-  if (!wifiConnected) {
-    if (firstUpload) {
-      Serial.println("Set to online mode, but not on WiFi");
-    }
+  if (!wifiConnected || deviceID.length() == 0) {
+    return;
+  }
+
+  // seed the upload timer on first entry so we don't fire immediately
+  if (lastDataUpload == 0) {
+    lastDataUpload = curMillis;
     return;
   }
 
@@ -1757,15 +1763,12 @@ void setup() {
   }
   
   Serial.println("Setup step: buzzer");
+  buzzer.begin();
   if (startupBeepEnabled) {
-    tone(buzzPin, NOTE_C4, 60, buzzerChannel);
-    noTone(buzzPin, buzzerChannel);
-    tone(buzzPin, NOTE_E4, 60, buzzerChannel);
-    noTone(buzzPin, buzzerChannel);
-    tone(buzzPin, NOTE_G4, 60, buzzerChannel);
-    noTone(buzzPin, buzzerChannel);
-    tone(buzzPin, NOTE_C5, 250, buzzerChannel);
-    noTone(buzzPin, buzzerChannel);
+    buzzer.tone(NOTE_C4, 60, 0, 1);
+    buzzer.tone(NOTE_E4, 60, 0, 1);
+    buzzer.tone(NOTE_G4, 60, 0, 1);
+    buzzer.tone(NOTE_C5, 250, 0, 1);
   }
 
   Serial.println("Setup step: display");
@@ -1786,7 +1789,14 @@ void setup() {
   Serial.println("Setup step: preferences");
   preferences.begin("hydrotek", false);
   #ifdef PREFERENCES_CLEAR
+    // preserve any hardcoded wifi credentials before wiping flash
+    String savedSsid = wifiSSID;
+    String savedPass = wifiPassphrase;
     preferences.clear();
+    if (savedSsid.length() > 0) {
+      preferences.putString("wifiSSID", savedSsid);
+      preferences.putString("wifiPass", savedPass);
+    }
   #endif
   webConfigRead();
   flashRead();
@@ -1803,6 +1813,75 @@ void setup() {
 
 }
 
+String serialInputBuffer = "";
+
+void handleSerialCommand(String cmd) {
+  cmd.trim();
+  Serial.println("CMD: " + cmd);
+
+  if (cmd.startsWith("wifi ")) {
+    // usage: wifi <ssid> <passphrase>
+    // passphrase may contain spaces
+    String rest = cmd.substring(5);
+    rest.trim();
+    int spaceIdx = rest.indexOf(' ');
+    if (spaceIdx < 0) {
+      Serial.println("Usage: wifi <ssid> <passphrase>");
+      return;
+    }
+    wifiSSID = rest.substring(0, spaceIdx);
+    wifiPassphrase = rest.substring(spaceIdx + 1);
+    webConfigWrite();
+    WiFi.disconnect(true);
+    delay(200);
+    calledWifiBegin = false;
+    wifiConnected = false;
+    configEnableWifi.setBoolVal(true);
+    flashWrite();
+    Serial.println("WiFi credentials saved. Connecting to: " + wifiSSID);
+    WiFi.begin(wifiSSID.c_str(), wifiPassphrase.c_str());
+    calledWifiBegin = true;
+
+  } else if (cmd == "pair") {
+    if (!wifiConnected) {
+      Serial.println("Not connected to WiFi - connect first with: wifi <ssid> <pass>");
+      return;
+    }
+    Serial.println("Starting pairing...");
+    startPairing();
+    Serial.println("Pairing code: " + pairingCode);
+    Serial.println("Confirm in the web app. Polling for confirmation...");
+
+  } else if (cmd == "status") {
+    Serial.println("WiFi: " + String(wifiConnected ? "connected" : "disconnected") + " (" + wifiSSID + ")");
+    Serial.println("DeviceID: " + (deviceID.length() > 0 ? deviceID : "not paired"));
+    if (uiMode == UI_PAIRING_WAIT && pairingCode.length() > 0 && pairingCode != "ERR") {
+      Serial.println("Pairing pending - code: " + pairingCode);
+    } else if (deviceID.length() > 0) {
+      Serial.println("Paired");
+    } else {
+      Serial.println("Not paired - use: pair");
+    }
+
+  } else {
+    Serial.println("Commands: wifi <ssid> <pass> | pair | status");
+  }
+}
+
+void handleSerial() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (serialInputBuffer.length() > 0) {
+        handleSerialCommand(serialInputBuffer);
+        serialInputBuffer = "";
+      }
+    } else {
+      serialInputBuffer += c;
+    }
+  }
+}
+
 int long unsigned lastSensorUpdate = 0;
 int long unsigned lastSerialUpdate = 0;
 bool wifiConnOnce = false; // track whether wifi ever connected
@@ -1811,6 +1890,8 @@ bool rtcSyncedFromServer = false;
 void loop () {
 
   unsigned int long curMillis = millis();
+
+  handleSerial();
 
   if (millis() - lastSerialUpdate > 60000) {
     String upd = "";

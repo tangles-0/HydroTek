@@ -6,6 +6,11 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 
+function stripDeviceOnlySettings(settings: Record<string, unknown>) {
+  const { enablewifi: _enableWifi, ...rest } = settings;
+  return rest;
+}
+
 export async function GET(request: NextRequest) {
   const deviceId = request.nextUrl.searchParams.get("deviceId") ?? "";
   const device = await getDeviceFromRequest(request, deviceId);
@@ -16,7 +21,7 @@ export async function GET(request: NextRequest) {
     configVersion: device.configVersion,
     localConfigVersion: device.localConfigVersion,
     configSyncState: device.configSyncState,
-    settings: device.desiredConfig ?? {},
+    settings: stripDeviceOnlySettings((device.desiredConfig ?? {}) as Record<string, unknown>),
   });
 }
 
@@ -27,7 +32,9 @@ export async function PATCH(request: NextRequest) {
   }
   const body = await request.json();
   const deviceId = String(body.deviceId ?? "");
-  const settings = body.settings ?? {};
+  const rawSettings =
+    body.settings && typeof body.settings === "object" ? (body.settings as Record<string, unknown>) : {};
+  const settings = stripDeviceOnlySettings(rawSettings);
   const device = await db.query.devices.findFirst({
     where: and(eq(devices.id, deviceId), eq(devices.accountId, session.user.id), isNull(devices.removedAt)),
   });

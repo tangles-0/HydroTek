@@ -4,6 +4,11 @@ import { getDeviceFromRequest } from "@/lib/deviceAuth";
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
+function stripDeviceOnlySettings(settings: Record<string, unknown>) {
+  const { enablewifi: _enableWifi, ...rest } = settings;
+  return rest;
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const deviceId = String(body.deviceId ?? "");
@@ -28,7 +33,7 @@ export async function POST(request: NextRequest) {
   };
 
   if (settings && typeof settings === "object" && updatePayload.configSyncState === "device") {
-    updatePayload.desiredConfig = settings as Record<string, unknown>;
+    updatePayload.desiredConfig = stripDeviceOnlySettings(settings as Record<string, unknown>);
     updatePayload.configVersion = Math.max(device.configVersion, updatePayload.localConfigVersion ?? 0);
   }
 
